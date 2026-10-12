@@ -10,10 +10,26 @@
 
 import { brandString } from '@deepseek-ai/dsh-brand'
 import { CONTEXT_WINDOW_EXCEEDED_CODE, EMPTY_RESPONSE_CODE, isContextWindowExceededError, isQuotaExceededError, LlmError, QUOTA_EXCEEDED_CODE } from '@deepseek-ai/dsh-llm'
-import type { FinishReason, StreamChunk, TokenUsage, ToolCallId } from '@deepseek-ai/dsh-llm'
+import type { FinishReason, StreamChunk, TokenLogprob, TokenUsage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import { isContextOverflow } from '@earendil-works/pi-ai/utils/overflow'
-import type { AssistantMessage, AssistantMessageEvent, Usage as PiUsage } from '@earendil-works/pi-ai'
+import type { AssistantMessage, AssistantMessageEvent, TokenLogprobEntry, Usage as PiUsage } from '@earendil-works/pi-ai'
 import { toPiReplayState } from './replay.ts'
+
+/**
+ * Convert pi-ai's wire-shaped logprob entries to the harness vocabulary
+ * (`top_logprobs` → `topLogprobs`), returning undefined for absent data so
+ * chunks stay field-free when the route never asked for logprobs.
+ * @param entries - token entries attached to one pi-ai delta event.
+ * @returns harness token records, or undefined when none arrived.
+ */
+function mapLogprobs(entries: readonly TokenLogprobEntry[] | undefined): readonly TokenLogprob[] | undefined {
+  if (entries === undefined || entries.length === 0) return undefined
+  return entries.map(entry => ({
+    token: entry.token,
+    logprob: entry.logprob,
+    ...entry.top_logprobs === undefined ? {} : { topLogprobs: entry.top_logprobs },
+  }))
+}
 
 /**
  * Map pi-ai usage (reasoning folded into output by pi-ai).
@@ -156,9 +172,16 @@ export async function* toStreamChunks(
       case 'text_start':
         yield { type: 'block-start', index: event.contentIndex, blockType: 'text' }
         break
-      case 'text_delta':
-        yield { type: 'text-delta', index: event.contentIndex, text: event.delta }
+      case 'text_delta': {
+        const logprobs = mapLogprobs(event.logprobs)
+        yield {
+          type: 'text-delta',
+          index: event.contentIndex,
+          text: event.delta,
+          ...logprobs === undefined ? {} : { logprobs },
+        }
         break
+      }
       case 'text_end':
         yield { type: 'block-end', index: event.contentIndex, block: { type: 'text', text: event.content } }
         break
@@ -182,12 +205,14 @@ export async function* toStreamChunks(
       }
       case 'toolcall_delta': {
         const known = toolIds.get(event.contentIndex)
+        const logprobs = mapLogprobs(event.logprobs)
         yield {
           type: 'tool-call-delta',
           index: event.contentIndex,
           id: brandString<ToolCallId>(known?.id ?? ''),
           ...known?.name !== undefined && known.name.length > 0 ? { name: known.name } : {},
           argumentsDelta: event.delta,
+          ...logprobs === undefined ? {} : { logprobs },
         }
         break
       }

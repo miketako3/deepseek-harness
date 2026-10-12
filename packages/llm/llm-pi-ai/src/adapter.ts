@@ -73,6 +73,9 @@ const ANTHROPIC_TOOL_UPDATE_PLACEHOLDER: ToolSchema = {
   parameters: { type: 'object', properties: {} },
 }
 
+/** Top-logprob alternatives requested when a profile enables `logprobs` without its own count. */
+const DEFAULT_TOP_LOGPROBS = 8
+
 /** One resolution's frozen view: the profiles and the collection built from them. */
 interface PiAiSnapshot {
   /** The resolved profiles this collection was built from, used as its identity. */
@@ -137,6 +140,11 @@ function profileOptions(
     ...profile.transport === undefined ? {} : { transport: profile.transport },
     ...profile.timeoutMs === undefined ? {} : { timeoutMs: profile.timeoutMs },
     ...profile.websocketConnectTimeoutMs === undefined ? {} : { websocketConnectTimeoutMs: profile.websocketConnectTimeoutMs },
+    // OpenAI-compatible routes only: the samplingParams merge delivers the
+    // wire fields verbatim; other protocols ignore them (pi-ai contract).
+    ...profile.logprobs === true
+      ? { samplingParams: { logprobs: true, top_logprobs: profile.topLogprobs ?? DEFAULT_TOP_LOGPROBS } }
+      : {},
     // The agent recovery layer owns visible attempts; one adapter call is one SDK attempt.
     maxRetries: 0,
   }

@@ -442,6 +442,21 @@ export interface ReplayEnvelope {
 }
 
 /**
+ * One sampled token's logprob record, mirroring the OpenAI-compatible
+ * `logprobs.content` entry shape. Transient telemetry: adapters attach it for
+ * stream observers (entropy guards); durable compaction drops it from packed
+ * delta runs, so consumers must not expect it on replayed streams.
+ */
+export interface TokenLogprob {
+  /** The sampled token text. */
+  readonly token: string
+  /** Natural log of the sampled token's probability. */
+  readonly logprob: number
+  /** The requested most-likely alternatives at this position. */
+  readonly topLogprobs?: readonly { readonly token: string; readonly logprob: number }[]
+}
+
+/**
  * Raw streaming protocol emitted by adapters.
  * Block indexes correlate interleaved deltas, and `block-end` carries the
  * assembled block. Adapters emit usage before the terminal finish and nothing
@@ -451,9 +466,9 @@ export interface ReplayEnvelope {
  */
 export type StreamChunk =
   | { type: 'block-start'; index: number; blockType: ContentBlockType }
-  | { type: 'text-delta'; index: number; text: string }
-  | { type: 'reasoning-delta'; index: number; text: string }
-  | { type: 'tool-call-delta'; index: number; id: ToolCallId; name?: string; argumentsDelta: string }
+  | { type: 'text-delta'; index: number; text: string; logprobs?: readonly TokenLogprob[] }
+  | { type: 'reasoning-delta'; index: number; text: string; logprobs?: readonly TokenLogprob[] }
+  | { type: 'tool-call-delta'; index: number; id: ToolCallId; name?: string; argumentsDelta: string; logprobs?: readonly TokenLogprob[] }
   | { type: 'block-end'; index: number; block: ContentBlock }
   | { type: 'usage'; usage: TokenUsage }
   | {

@@ -35,10 +35,33 @@ index fbcc5e25ee6752a9c5461b41fa8544a090a17b3f..f540825c4f934f342200db72190599fe
                  type: "toolcall_delta",
                  contentIndex: toolBlocksByKey.get(key),
 diff --git a/dist/api/openai-completions.js b/dist/api/openai-completions.js
-index a60f39352b776d71497e55b33b3334bacfbeb2f5..6c9b98e35606c52e4f0fb29d8fd0b5ba02d92e09 100644
+index a60f39352b776d71497e55b33b3334bacfbeb2f5..42d97ad974d0de8b7c99a4defb95f2e4ca55e76c 100644
 --- a/dist/api/openai-completions.js
 +++ b/dist/api/openai-completions.js
-@@ -438,7 +438,6 @@ export const stream = (model, context, options) => {
+@@ -366,6 +366,12 @@ export const stream = (model, context, options) => {
+                 const choice = Array.isArray(chunk.choices) ? chunk.choices[0] : undefined;
+                 if (!choice)
+                     continue;
++                // dsh: surface per-token logprobs (OpenAI `logprobs.content`) on the
++                // first token-carrying delta of this chunk, preserving token order
++                // for stream observers (entropy guards). Consumed once.
++                let chunkLogprobs = Array.isArray(choice.logprobs?.content) && choice.logprobs.content.length > 0
++                    ? choice.logprobs.content
++                    : undefined;
+                 // Fallback: some providers (e.g., Moonshot) return usage
+                 // in choice.usage instead of the standard chunk.usage
+                 if (!chunk.usage && choice.usage) {
+@@ -391,7 +397,9 @@ export const stream = (model, context, options) => {
+                             contentIndex: getContentIndex(block),
+                             delta: choice.delta.content,
+                             partial: output,
++                            ...(chunkLogprobs !== undefined ? { logprobs: chunkLogprobs } : {}),
+                         });
++                        chunkLogprobs = undefined;
+                     }
+                     // Some endpoints return reasoning in reasoning_content (llama.cpp),
+                     // or reasoning (other openai compatible endpoints)
+@@ -438,7 +446,6 @@ export const stream = (model, context, options) => {
                              if (toolCall.function?.arguments) {
                                  delta = toolCall.function.arguments;
                                  block.partialArgs = (block.partialArgs ?? "") + toolCall.function.arguments;
@@ -46,6 +69,16 @@ index a60f39352b776d71497e55b33b3334bacfbeb2f5..6c9b98e35606c52e4f0fb29d8fd0b5ba
                              }
                              else if (toolCall.custom?.input) {
                                  const nextInput = getCustomToolCallInput(block) + toolCall.custom.input;
+@@ -449,7 +456,9 @@ export const stream = (model, context, options) => {
+                                 contentIndex: getContentIndex(block),
+                                 delta,
+                                 partial: output,
++                                ...(chunkLogprobs !== undefined ? { logprobs: chunkLogprobs } : {}),
+                             });
++                            chunkLogprobs = undefined;
+                         }
+                     }
+                     const reasoningDetails = choice.delta.reasoning_details;
 diff --git a/dist/api/openai-responses-shared.js b/dist/api/openai-responses-shared.js
 index f413fe5f2a1abcac39c38bbd4a77b38c349a5918..108f599ae1d985d2f465e8cdf99ce0624acea6aa 100644
 --- a/dist/api/openai-responses-shared.js
@@ -71,3 +104,44 @@ index 7da1c45de8a106a68411cf79bec75f553534a1c7..296d131b59b1cf75f2516c39e85bba72
                  break;
              }
              case "toolcall_end":
+diff --git a/dist/types.d.ts b/dist/types.d.ts
+index 8e333b45c75674aa542fb6b38dc6e197dafd0bf4..389f26fa3d8e22689e5bbb1db643dead9013b4e3 100644
+--- a/dist/types.d.ts
++++ b/dist/types.d.ts
+@@ -563,6 +563,18 @@ export type TranscriptContext = {
+  * deltas. Tool-call arguments at `toolcall_start` are provider-specific;
+  * `toolcall_delta` carries subsequent JSON updates.
+  */
++/**
++ * dsh: one sampled token's logprob record as returned in OpenAI-compatible
++ * `logprobs.content` entries; `top_logprobs` carries the requested alternatives.
++ */
++export interface TokenLogprobEntry {
++    token: string;
++    logprob: number;
++    top_logprobs?: Array<{
++        token: string;
++        logprob: number;
++    }>;
++}
+ export type AssistantMessageEvent = {
+     type: "start";
+     partial: AssistantMessage;
+@@ -575,6 +587,8 @@ export type AssistantMessageEvent = {
+     contentIndex: number;
+     delta: string;
+     partial: AssistantMessage;
++    /** dsh: per-token logprobs for this delta, when the provider returned them. */
++    logprobs?: TokenLogprobEntry[];
+ } | {
+     type: "text_end";
+     contentIndex: number;
+@@ -603,6 +617,8 @@ export type AssistantMessageEvent = {
+     contentIndex: number;
+     delta: string;
+     partial: AssistantMessage;
++    /** dsh: per-token logprobs for this delta, when the provider returned them. */
++    logprobs?: TokenLogprobEntry[];
+ } | {
+     type: "toolcall_end";
+     contentIndex: number;

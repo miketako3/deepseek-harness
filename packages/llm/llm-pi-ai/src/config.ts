@@ -180,6 +180,15 @@ export interface PiAiProviderProfile {
   requestImageMaxBytes?: number
   /** Provider-owned model-request retry policy; omission uses normal mode with five retries. */
   retryPolicy?: RetryPolicyConfig
+  /**
+   * Ask the provider for per-token logprobs on streamed output (OpenAI-compat
+   * `logprobs: true` with `top_logprobs`). Only OpenAI-completions-style routes
+   * honor it; other protocols ignore it. Emitted chunk payloads ride the
+   * `llm-pi-ai/provider-chunk` event for stream observers such as entropy guards.
+   */
+  logprobs?: boolean
+  /** Top alternatives per token requested when {@link PiAiProviderProfile.logprobs} is on (1–20, default 8). */
+  topLogprobs?: number
 }
 
 /** Validated profile with its route stamped and every adapter-owned default resolved. */
@@ -342,6 +351,8 @@ const profile = z.object({
   timeoutMs: z.natural(),
   websocketConnectTimeoutMs: z.natural(),
   streamIdleTimeoutMs: z.number().min(Number.MIN_VALUE).max(MAX_TIMER_DELAY_MS).default(DEFAULT_STREAM_IDLE_TIMEOUT_MS),
+  logprobs: z.boolean(),
+  topLogprobs: z.number().step(1).min(1).max(20),
   maxRequestImageBytes: z.number().step(1).min(1).default(DEFAULT_MAX_REQUEST_IMAGE_BYTES),
   requestImagePixelBudget: z.number().step(1).min(1).default(DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET),
   requestImageMaxBytes: z.number().step(1).min(1).default(DEFAULT_REQUEST_IMAGE_MAX_BYTES),
@@ -426,6 +437,13 @@ export function resolveProfiles(
       throw new Error(`llm-pi-ai: provider "${provider}" has an empty displayName`)
     }
     assertValidHeaders(provider, source.headers)
+    if (source.topLogprobs !== undefined && source.logprobs !== true) {
+      throw new Error(`llm-pi-ai: provider "${provider}" sets topLogprobs without logprobs: true`)
+    }
+    if (source.topLogprobs !== undefined
+      && (!Number.isInteger(source.topLogprobs) || source.topLogprobs < 1 || source.topLogprobs > 20)) {
+      throw new Error(`llm-pi-ai: provider "${provider}" topLogprobs must be an integer between 1 and 20`)
+    }
     const streamIdleTimeoutMs = source.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
     if (!Number.isFinite(streamIdleTimeoutMs)
       || streamIdleTimeoutMs <= 0
