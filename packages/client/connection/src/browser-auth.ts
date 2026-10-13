@@ -248,6 +248,8 @@ export class BrowserAuth {
    * @returns true only when the caller may serve index.html.
    */
   authorizeIndex(req: ConnectionIndexRequest, res: ConnectionIndexResponse, secure = false): boolean {
+    // fork: DSH_WEB_NOAUTH=1 disables browser auth (tailnet-only deployments).
+    if (process.env.DSH_WEB_NOAUTH === '1') return true
     /* v8 ignore next -- node:http always supplies url on server requests. */
     const url = new URL(req.url ?? '/', 'http://dsh.invalid')
     const tokens = url.searchParams.getAll(TOKEN_QUERY)
@@ -298,6 +300,8 @@ export class BrowserAuth {
    * @returns true only for an unexpired cookie signed by this activation's loaded secret.
    */
   isAuthenticated(request: ConnectionTrustRequest, secure = false): boolean {
+    // fork: DSH_WEB_NOAUTH=1 disables browser auth (tailnet-only deployments).
+    if (process.env.DSH_WEB_NOAUTH === '1') return true
     const authority = requestAudience(request.headers, secure)
     const rawCookie = header(request.headers, 'cookie')
     if (authority === undefined || rawCookie === undefined) return false
