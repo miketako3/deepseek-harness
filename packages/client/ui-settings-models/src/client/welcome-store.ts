@@ -1,8 +1,8 @@
 /**
  * Welcome-notice state derived from the welcome settings scope. The scope is
  * the transport: a loopback browser follows the durable Host section, while a
- * remote browser's memory-mode scope never answers and the acknowledgement
- * stays process-local here.
+ * non-loopback browser has no Host-only namespace to read or write, so the
+ * notice never renders there.
  */
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -39,20 +39,19 @@ function assertNever(_value: never): never {
   throw new Error('unexpected welcome settings status')
 }
 
-/** Coordinates durable Host acknowledgement or a process-local remote fallback. */
+/** Coordinates durable Host acknowledgement; a scope without Host persistence reports the notice as settled. */
 export class WelcomeNoticeStore {
   /** uSES-safe state source shared by the registered welcome step. */
   readonly store: SnapshotStore<WelcomeNoticeState> = createSnapshotStore<WelcomeNoticeState>({
     status: 'idle', acknowledged: false, error: null,
   })
 
-  private localAcknowledged = false
   private saving = false
   private following: (() => void) | undefined
 
   /**
-   * @param scope - the welcome settings namespace scope; its memory mode is
-   * what keeps a remote browser process-local.
+   * @param scope - the welcome settings namespace scope; its memory mode names
+   * a browser that has no Host namespace to acknowledge through.
    */
   constructor(private readonly scope: ConfigForm<WelcomeSection>) {}
 
@@ -67,17 +66,14 @@ export class WelcomeNoticeStore {
   }
 
   /**
-   * Persist this copy version, or advance only this process for a remote
+   * Persist this copy version. A scope without Host persistence has nothing to
+   * write and reports success, because the notice never renders for that
    * browser. Success is judged against the state the write left behind, so a
    * refused or failed write reports false after its recovery read settles.
    * @returns true when the selected persistence mode holds the acknowledgement.
    */
   async acknowledge(): Promise<boolean> {
-    if (this.scope.getSnapshot().mode === 'memory') {
-      this.localAcknowledged = true
-      this.derive()
-      return true
-    }
+    if (this.scope.getSnapshot().mode === 'memory') return true
     this.saving = true
     this.store.update((state) => { state.status = 'saving'; state.error = null })
     try {
@@ -108,7 +104,7 @@ export class WelcomeNoticeStore {
     if (scope.mode === 'memory') {
       this.store.update((state) => {
         state.status = 'ready'
-        state.acknowledged = this.localAcknowledged
+        state.acknowledged = true
         state.error = null
       })
       return

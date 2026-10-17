@@ -1,5 +1,5 @@
-// Trusted non-loopback Web access cannot call the loopback-only settings API;
-// the notice therefore advances for this browser process and returns on reload.
+// Trusted non-loopback Web access cannot call the loopback-only settings API,
+// so the welcome notice is settled without ever rendering for that browser.
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -38,22 +38,23 @@ describe.skipIf(MODE === 'record')('web e2e: remote welcome notice', () => {
     await scaffold?.close()
   })
 
-  it('advances process-locally and presents the notice again after reload', async () => {
+  it('leaves the notice unrendered for a non-loopback browser, before and after reload', async () => {
     const welcome = page.getByRole('dialog', { name: WELCOME_NOTICE_COPY.zh.title })
-    await welcome.waitFor({ timeout: 15_000 })
-    expect(await page.locator('#root').evaluate(root => (root as HTMLElement).inert)).toBe(true)
-
-    await welcome.getByRole('button', { name: WELCOME_NOTICE_COPY.zh.continueLabel }).click()
-    await welcome.waitFor({ state: 'detached', timeout: 15_000 })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    // The step settles without a dialog, so nothing ever keeps the root inert.
     await expect.poll(
       () => page.locator('#root').evaluate(root => (root as HTMLElement).inert),
       { timeout: 15_000 },
     ).toBe(false)
+    await page.waitForTimeout(600)
+    expect(await welcome.count()).toBe(0)
 
     const reloadWarnings = tripwire.warnings.length
     await page.reload({ waitUntil: 'load' })
     acknowledgeReloadConnectionLoss(tripwire, reloadWarnings)
-    await welcome.waitFor({ timeout: 15_000 })
+    await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
+    await page.waitForTimeout(600)
+    expect(await welcome.count()).toBe(0)
     expect(tripwire.warnings).toEqual([])
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)

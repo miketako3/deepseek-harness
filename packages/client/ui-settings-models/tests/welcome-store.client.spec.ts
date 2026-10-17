@@ -56,13 +56,13 @@ function buildWelcome(
 }
 
 describe('WelcomeNoticeStore', () => {
-  it('acknowledges in memory while Host settings persistence is disabled', async () => {
+  it('settles the notice without a read or write while Host settings persistence is disabled', async () => {
     const describeCall = vi.fn()
     const mutate = vi.fn()
     const { controller } = buildWelcome({ describe: describeCall, mutate }, 'memory')
 
     await controller.load()
-    expect(controller.store.getSnapshot()).toEqual({ status: 'ready', acknowledged: false, error: null })
+    expect(controller.store.getSnapshot()).toEqual({ status: 'ready', acknowledged: true, error: null })
     await expect(controller.acknowledge()).resolves.toBe(true)
     expect(controller.store.getSnapshot()).toEqual({ status: 'ready', acknowledged: true, error: null })
     await controller.load()
