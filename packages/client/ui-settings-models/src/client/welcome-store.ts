@@ -1,8 +1,6 @@
 /**
- * Welcome-notice state derived from the welcome settings scope. The scope is
- * the transport: a loopback browser follows the durable Host section, while a
- * non-loopback browser has no Host-only namespace to read or write, so the
- * notice never renders there.
+ * Welcome-notice state derived from the welcome settings scope: the notice
+ * follows the Host section and records its acknowledgement through it.
  */
 
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
@@ -39,7 +37,7 @@ function assertNever(_value: never): never {
   throw new Error('unexpected welcome settings status')
 }
 
-/** Coordinates durable Host acknowledgement; a scope without Host persistence reports the notice as settled. */
+/** Coordinates the durable Host acknowledgement. */
 export class WelcomeNoticeStore {
   /** uSES-safe state source shared by the registered welcome step. */
   readonly store: SnapshotStore<WelcomeNoticeState> = createSnapshotStore<WelcomeNoticeState>({
@@ -49,10 +47,6 @@ export class WelcomeNoticeStore {
   private saving = false
   private following: (() => void) | undefined
 
-  /**
-   * @param scope - the welcome settings namespace scope; its memory mode names
-   * a browser that has no Host namespace to acknowledge through.
-   */
   constructor(private readonly scope: ConfigForm<WelcomeSection>) {}
 
   /**
@@ -66,14 +60,12 @@ export class WelcomeNoticeStore {
   }
 
   /**
-   * Persist this copy version. A scope without Host persistence has nothing to
-   * write and reports success, because the notice never renders for that
-   * browser. Success is judged against the state the write left behind, so a
-   * refused or failed write reports false after its recovery read settles.
-   * @returns true when the selected persistence mode holds the acknowledgement.
+   * Persist this copy version through the scope. Success is judged against the
+   * state the write left behind, so a refused or failed write reports false
+   * after its recovery read settles.
+   * @returns true when the Host holds the acknowledgement.
    */
   async acknowledge(): Promise<boolean> {
-    if (this.scope.getSnapshot().mode === 'memory') return true
     this.saving = true
     this.store.update((state) => { state.status = 'saving'; state.error = null })
     try {
@@ -101,14 +93,6 @@ export class WelcomeNoticeStore {
   private derive(): void {
     if (this.saving) return
     const scope = this.scope.getSnapshot()
-    if (scope.mode === 'memory') {
-      this.store.update((state) => {
-        state.status = 'ready'
-        state.acknowledged = true
-        state.error = null
-      })
-      return
-    }
     switch (scope.status) {
       case 'loading':
         this.store.update((state) => { state.status = 'loading'; state.error = null })
